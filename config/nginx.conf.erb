@@ -1,51 +1,77 @@
 daemon off;
-# Heroku dynos have at least 4 cores.
-worker_processes <%= ENV['NGINX_WORKERS'] || 4 %>;
+worker_processes  4;
 
 events {
-	use epoll;
-	accept_mutex on;
-	worker_connections <%= ENV['NGINX_WORKER_CONNECTIONS'] || 1024 %>;
+    worker_connections  1024;
 }
 
-http {
-	gzip on;
-	gzip_comp_level 2;
-	gzip_min_length 512;
-	gzip_proxied any; # Heroku router sends Via header
+stream {
+    map $ssl_preread_server_name $name {
+        chat.signal.org                         signal-service;
+        ud-chat.signal.org                      signal-service;
+        textsecure-service.whispersystems.org   signal-service;
+        storage.signal.org                      storage-service;
+        cdn.signal.org                          signal-cdn;
+        cdn2.signal.org                         signal-cdn2;
+        api.directory.signal.org                directory;
+        contentproxy.signal.org                 content-proxy;
+        uptime.signal.org                       uptime;
+        api.backup.signal.org                   backup;
+        sfu.voip.signal.org                     sfu;
+        updates.signal.org                      updates;
+        updates2.signal.org                     updates2;
+        default                                 deny;
+    }
 
-	server_tokens off;
+    upstream signal-service {
+         server chat.signal.org:443;
+    }
 
-	log_format l2met 'measure#nginx.service=$request_time request_id=$http_x_request_id';
-	access_log <%= ENV['NGINX_ACCESS_LOG_PATH'] || 'logs/nginx/access.log' %> l2met;
-	error_log <%= ENV['NGINX_ERROR_LOG_PATH'] || 'logs/nginx/error.log' %>;
+    upstream storage-service {
+        server storage.signal.org:443;
+    }
 
-	include mime.types;
-	default_type application/octet-stream;
-	sendfile on;
+    upstream signal-cdn {
+        server cdn.signal.org:443;
+    }
 
-	# Must read the body in 5 seconds.
-	client_body_timeout 5;
+    upstream signal-cdn2 {
+        server cdn2.signal.org:443;
+    }
 
-	upstream app_server {
-		server unix:/tmp/nginx.socket fail_timeout=0;
-	}
+    upstream directory {
+        server api.directory.signal.org:443;
+    }
 
-	server {
-		listen <%= ENV["PORT"] %>;
-		server_name _;
-		keepalive_timeout 5;
+    upstream content-proxy {
+        server contentproxy.signal.org:443;
+    }
 
-		location / {
-			# Uncomment this if statement to force SSL/redirect http -> https
-			# if ($http_x_forwarded_proto != "https") {
-			#   return 301 https://$host$request_uri;
-			# }
+    upstream backup {
+        server api.backup.signal.org:443;
+    }
 
-			proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-			proxy_set_header Host $http_host;
-			proxy_redirect off;
-			proxy_pass http://app_server;
-		}
-	}
+    upstream sfu {
+        server sfu.voip.signal.org:443;
+    }
+
+    upstream updates {
+        server updates.signal.org:443;
+    }
+
+    upstream updates2 {
+        server updates2.signal.org:443;
+    }
+
+    upstream deny {
+        server 127.0.0.1:9;
+    }
+
+    server {
+        listen                <%= ENV["PORT"] %>;
+        proxy_pass            $name;
+        ssl_preread           on;
+        error_log             logs/nginx/error.log;
+        access_log            logs/nginx/access.log;
+     }
 }
